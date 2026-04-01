@@ -1,7 +1,13 @@
 import 'package:dio/dio.dart';
 
 enum DownloadStatus { idle, downloading, paused, completed, error }
-
+/// Represents a single download task.
+///
+/// Holds:
+/// - URL
+/// - progress
+/// - status
+/// - retry information
 class DownloadTask {
   final String id;
   final String url;

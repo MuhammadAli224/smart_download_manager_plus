@@ -11,7 +11,48 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../smart_download_manager_plus.dart';
 
+/// A powerful controller for managing file downloads in Flutter.
+///
+/// This controller provides a full-featured download system including:
+///
+/// - 📥 Multiple concurrent downloads
+/// - ⏸ Pause & ▶ Resume support
+/// - 🔁 Automatic retry mechanism
+/// - 📊 Progress & speed tracking
+/// - 🔔 Native notifications (Android)
+/// - 💾 Persistent storage of tasks
+/// - 📂 Save files to Downloads (Android) or Documents (iOS)
+/// - 🚀 Priority-based queue system
+///
+/// ## Example
+///
+/// ```dart
+/// final controller = DownloadController(
+///   maxConcurrent: 2,
+///   onTaskCompleted: (task) {
+///     print('Download completed: ${task.fileName}');
+///   },
+/// );
+///
+/// final task = controller.addTask(
+///   'https://example.com/file.pdf',
+///   openAfterDownload: true,
+/// );
+///
+/// controller.startTask(task);
+/// ```
+///
+/// ## Notes
+///
+/// - On Android, files are saved to the **Downloads** folder.
+/// - On iOS, files are saved to the **Application Documents directory**.
+/// - Supports resuming downloads if partial files exist.
+///
+/// See also:
+/// - [DownloadTask]
+/// - [DownloadStatus]
 class DownloadController {
+  /// Maximum number of concurrent downloads.
   final int maxConcurrent;
   final void Function(DownloadTask task)? onTaskProgress;
   final void Function(DownloadTask task)? onTaskCompleted;
@@ -30,6 +71,16 @@ class DownloadController {
   int get _activeCount =>
       tasks.where((t) => t.status == DownloadStatus.downloading).length;
 
+  /// Creates a [DownloadController].
+  ///
+  /// The [maxConcurrent] parameter limits how many downloads can run at once.
+  /// If set to `0`, there is no limit.
+  ///
+  /// Callback parameters:
+  /// - [onTaskProgress]: Called when progress updates.
+  /// - [onTaskCompleted]: Called when a task completes successfully.
+  /// - [onTaskFailed]: Called when a task fails.
+  /// - [onTaskPaused]: Called when a task is paused.
   DownloadController({
     this.maxConcurrent = 0,
     this.onTaskProgress,
@@ -62,6 +113,9 @@ class DownloadController {
     }
   }
 
+  /// Restores previously saved tasks from local storage.
+  ///
+  /// Uses [SharedPreferences] internally.
   Future<void> restoreTasks() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -76,8 +130,28 @@ class DownloadController {
     }
   }
 
-  // ── Add ────────────────────────────────────────────────────────────────────
-
+  /// 🔹 addTask
+  /// Adds a new download task to the queue.
+  ///
+  /// Parameters:
+  /// - [url]: The file URL to download.
+  /// - [fileName]: Optional custom file name. Defaults to URL last segment.
+  /// - [subFolder]: Optional subfolder inside Downloads (Android only).
+  /// - [headers]: Optional HTTP headers.
+  /// - [maxRetries]: Number of retry attempts on failure.
+  /// - [retryDelay]: Delay between retries.
+  /// - [priority]: Higher values are downloaded first.
+  /// - [openAfterDownload]: Automatically open file after completion.
+  ///
+  /// Returns the created [DownloadTask].
+  ///
+  /// Example:
+  /// ```dart
+  /// controller.addTask(
+  ///   'https://example.com/image.png',
+  ///   priority: 10,
+  /// );
+  /// ```
   DownloadTask addTask(
     String url, {
     String? fileName,
@@ -118,6 +192,17 @@ class DownloadController {
     return task;
   }
 
+  /// Adds multiple download tasks at once.
+  ///
+  /// All tasks share the same configuration.
+  ///
+  /// Example:
+  /// ```dart
+  /// controller.addBatch([
+  ///   'https://example.com/file1.pdf',
+  ///   'https://example.com/file2.pdf',
+  /// ]);
+  /// ```
   List<DownloadTask> addBatch(
     List<String> urls, {
     String? subFolder,
@@ -147,8 +232,9 @@ class DownloadController {
     return created;
   }
 
-  // ── Start ──────────────────────────────────────────────────────────────────
-
+  /// Starts all pending (idle or paused) tasks.
+  ///
+  /// Respects the [maxConcurrent] limit.
   Future<void> startTask(
     DownloadTask task, {
     Function()? onUpdate,
@@ -405,11 +491,6 @@ class DownloadController {
         );
       }
     } finally {
-      // ── KEY FIX ────────────────────────────────────────────────────────
-      // Only delete the temp file if:
-      //   • Task completed (file already copied to Downloads)
-      //   • Task errored AND we won't retry (no point keeping corrupt partial)
-      //   • NOT paused — keep the partial file so resume can continue from here
       final shouldDelete = !wasPaused &&
           (task.status == DownloadStatus.completed ||
               task.status == DownloadStatus.error);
@@ -493,7 +574,9 @@ class DownloadController {
   }
 
   // ── Individual controls ────────────────────────────────────────────────────
-
+  /// Pauses an active download task.
+  ///
+  /// The download can later be resumed using [resumeTask].
   void pauseTask(DownloadTask task, {Function()? onUpdate}) {
     _log('pauseTask → id=${task.id}, fileName=${task.fileName}',
         tag: 'pauseTask');
@@ -504,6 +587,10 @@ class DownloadController {
     _log('Task paused → id=${task.id}', tag: 'pauseTask');
   }
 
+  /// Resumes a paused download task.
+  ///
+  /// This internally calls [startTask] and continues
+  /// from the last downloaded byte.
   Future<void> resumeTask(
     DownloadTask task, {
     Function()? onUpdate,
@@ -518,6 +605,12 @@ class DownloadController {
         onUpdate: onUpdate, showNotification: showNotification);
   }
 
+  /// Cancels a download task completely.
+  ///
+  /// This will:
+  /// - Stop the download
+  /// - Delete any partial file
+  /// - Reset progress
   Future<void> cancelTask(DownloadTask task, {Function()? onUpdate}) async {
     _log('cancelTask → id=${task.id}, fileName=${task.fileName}',
         tag: 'cancelTask');
@@ -550,6 +643,9 @@ class DownloadController {
     _log('Task reset to idle → id=${task.id}', tag: 'cancelTask');
   }
 
+  /// Removes a task from the controller.
+  ///
+  /// This also cancels the task if it is active.
   void removeTask(DownloadTask task, {Function()? onUpdate}) {
     _log('removeTask → id=${task.id}, fileName=${task.fileName}',
         tag: 'removeTask');
@@ -593,6 +689,9 @@ class DownloadController {
     return '${(bytes / (1024 * 1024)).toStringAsFixed(2)}MB';
   }
 
+  /// Disposes the controller and closes internal streams.
+  ///
+  /// Must be called to avoid memory leaks.
   void dispose() {
     _streamController.close();
     _log('DownloadController disposed');
