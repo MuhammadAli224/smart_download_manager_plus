@@ -1,6 +1,9 @@
 name: flutter_download_manager
 description: A Flutter package to download files to Android Downloads folder with notifications.
 version: 1.0.0
+homepage: https://github.com/MuhammadAli224/flutter_download_manager
+repository: https://github.com/MuhammadAli224/flutter_download_manager
+issue_tracker: https://github.com/MuhammadAli224/flutter_download_manager/issues
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
