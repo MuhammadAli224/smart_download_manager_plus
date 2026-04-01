@@ -1,3 +1,11 @@
+## 1.0.3
+
+- Added iOS platform support in plugin configuration
+- Updated pubspec to correctly reflect multi-platform support (Android + iOS)
+- Improved package metadata for pub.dev
+- Minor fixes and cleanup
+
+
 ## 1.0.2
 
 - Fixed library naming to match package name
