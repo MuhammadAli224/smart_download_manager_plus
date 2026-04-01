@@ -22,10 +22,10 @@ A powerful, resumable, and queue-based download manager for Flutter — built fo
 ##  Preview
 
 
-![Screenshot_1775037209.png](../../Desktop/Screenshot_1775037209.png)
-![Screenshot_1775037214.png](../../Desktop/Screenshot_1775037214.png)
-![Screenshot_1775037220.png](../../Desktop/Screenshot_1775037220.png)
-![Screenshot_1775037231.png](/screenshot/Screenshot_1775037231.png)
+![Screenshot_1775037209.png](screenshots/Screenshot_1775037209.png)
+![Screenshot_1775037214.png](screenshots/Screenshot_1775037214.png)
+![Screenshot_1775037220.png](screenshots/Screenshot_1775037220.png)
+![Screenshot_1775037231.png](screenshots/Screenshot_1775037231.png)
 
 
 ---
