@@ -1,6 +1,6 @@
 name: smart_download_manager_plus
 description: A Flutter package to download files to Android Downloads folder with notifications.
-version: 1.0.2
+version: 1.0.3
 homepage: https://github.com/MuhammadAli224/smart_download_manager_plus
 repository: https://github.com/MuhammadAli224/smart_download_manager_plus
 issue_tracker: https://github.com/MuhammadAli224/smart_download_manager_plus/issues
@@ -37,4 +37,6 @@ flutter:
     platforms:
       android:
         package: com.fdm.flutter_download_manager
+        pluginClass: FlutterDownloadManagerPlugin
+      ios:
         pluginClass: FlutterDownloadManagerPlugin
