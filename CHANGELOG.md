@@ -1,3 +1,6 @@
-## 0.0.1
+## 1.0.0
 
-* TODO: Describe initial release.
+- Initial release
+- Download manager with resume support
+- Notifications
+- Android MediaStore integration
