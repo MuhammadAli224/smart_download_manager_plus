@@ -1,9 +1,5 @@
 #  Flutter Download Manager
 
-[![pub package](https://img.shields.io/pub/v/flutter_download_manager.svg)](https://pub.dev/packages/flutter_download_manager)
-[![likes](https://img.shields.io/pub/likes/flutter_download_manager)](https://pub.dev/packages/flutter_download_manager/score)
-[![popularity](https://img.shields.io/pub/popularity/flutter_download_manager)](https://pub.dev/packages/flutter_download_manager/score)
-[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A powerful, resumable, and queue-based download manager for Flutter — built for production apps.
 
