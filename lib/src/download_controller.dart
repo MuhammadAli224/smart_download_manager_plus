@@ -9,8 +9,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'download_task.dart';
-import 'utils/download_notification_service.dart';
+import '../flutter_download_manager.dart';
 
 class DownloadController {
   final int maxConcurrent;
@@ -25,6 +24,7 @@ class DownloadController {
 
   final List<DownloadTask> tasks = [];
   final _streamController = StreamController<DownloadTask>.broadcast();
+
   Stream<DownloadTask> get onTaskUpdated => _streamController.stream;
 
   int get _activeCount =>
@@ -79,20 +79,21 @@ class DownloadController {
   // ── Add ────────────────────────────────────────────────────────────────────
 
   DownloadTask addTask(
-      String url, {
-        String? fileName,
-        String? subFolder,
-        Map<String, dynamic>? headers,
-        int maxRetries = 0,
-        Duration retryDelay = const Duration(seconds: 2),
-        int priority = 0,
-      }) {
+    String url, {
+    String? fileName,
+    String? subFolder,
+    Map<String, dynamic>? headers,
+    int maxRetries = 0,
+    Duration retryDelay = const Duration(seconds: 2),
+    int priority = 0,
+    bool openAfterDownload = false,
+  }) {
     final resolvedName = fileName ?? Uri.parse(url).pathSegments.last;
 
     _log(
       'addTask → url=$url, fileName=$resolvedName, '
-          'subFolder=$subFolder, priority=$priority, '
-          'maxRetries=$maxRetries, headers=${headers?.keys}',
+      'subFolder=$subFolder, priority=$priority, '
+      'maxRetries=$maxRetries, headers=${headers?.keys}',
       tag: 'addTask',
     );
 
@@ -105,35 +106,37 @@ class DownloadController {
       maxRetries: maxRetries,
       retryDelay: retryDelay,
       priority: priority,
+      openAfterDownload: openAfterDownload,
     );
 
     tasks.add(task);
     _sortByPriority();
     _saveTasks();
 
-    _log('Task created → id=${task.id}, fileName=${task.fileName}', tag: 'addTask');
+    _log('Task created → id=${task.id}, fileName=${task.fileName}',
+        tag: 'addTask');
     return task;
   }
 
   List<DownloadTask> addBatch(
-      List<String> urls, {
-        String? subFolder,
-        Map<String, dynamic>? headers,
-        int maxRetries = 0,
-        Duration retryDelay = const Duration(seconds: 2),
-        int priority = 0,
-      }) {
+    List<String> urls, {
+    String? subFolder,
+    Map<String, dynamic>? headers,
+    int maxRetries = 0,
+    Duration retryDelay = const Duration(seconds: 2),
+    int priority = 0,
+  }) {
     _log('addBatch → count=${urls.length}', tag: 'addBatch');
 
     final created = urls
         .map((url) => addTask(
-      url,
-      subFolder: subFolder,
-      headers: headers,
-      maxRetries: maxRetries,
-      retryDelay: retryDelay,
-      priority: priority,
-    ))
+              url,
+              subFolder: subFolder,
+              headers: headers,
+              maxRetries: maxRetries,
+              retryDelay: retryDelay,
+              priority: priority,
+            ))
         .toList();
 
     _log(
@@ -147,17 +150,16 @@ class DownloadController {
   // ── Start ──────────────────────────────────────────────────────────────────
 
   Future<void> startTask(
-      DownloadTask task, {
-        Function()? onUpdate,
-        bool openAfterDownload = false,
-        bool showNotification = true,
-      }) async {
+    DownloadTask task, {
+    Function()? onUpdate,
+    bool showNotification = true,
+  }) async {
     _log(
       'startTask → id=${task.id}, fileName=${task.fileName}, '
-          'openAfterDownload=$openAfterDownload, showNotification=$showNotification',
+      'openAfterDownload=${task.openAfterDownload}, showNotification=$showNotification',
       tag: 'startTask',
     );
-
+    final shouldOpen = task.openAfterDownload;
     if (task.status == DownloadStatus.downloading) {
       _log('Skipped — already downloading id=${task.id}', tag: 'startTask');
       return;
@@ -202,7 +204,7 @@ class DownloadController {
       startByte = await tempFile.length();
       _log(
         'Partial file found → resuming from byte $startByte '
-            '(${_fmt(startByte)} already downloaded)',
+        '(${_fmt(startByte)} already downloaded)',
         tag: 'startTask',
       );
     } else {
@@ -230,11 +232,12 @@ class DownloadController {
         Uri.parse(task.url),
         tempPath,
         cancelToken: cancelToken,
-        deleteOnError: false, // ← keep partial file so we can resume later
+        deleteOnError: false, // keep partial file so we can resume later
         options: Options(
           headers: mergedHeaders,
-          // appendMode allows writing from where we left off
-          responseType: ResponseType.stream,
+          // // appendMode allows writing from where we left off
+          // responseType: ResponseType.stream,
+          followRedirects: true,
         ),
         onReceiveProgress: (received, total) {
           // `received` is bytes received in THIS session
@@ -245,18 +248,16 @@ class DownloadController {
           if (grandTotal != -1) {
             task.progress = totalReceived / grandTotal;
           }
-          task.updateSpeed(received);
+          task.updateSpeed(totalReceived);
           _notify(task, onUpdate);
 
-          final percent = grandTotal != -1
-              ? (task.progress * 100).toInt()
-              : -1;
+          final percent = grandTotal != -1 ? (task.progress * 100).toInt() : -1;
 
           _log(
             'Progress → ${percent == -1 ? '?' : '$percent'}% | '
-                'session=${_fmt(received)} | '
-                'total=${_fmt(totalReceived)} | '
-                'speed=${task.speed.toStringAsFixed(0)} B/s',
+            'session=${_fmt(received)} | '
+            'total=${_fmt(totalReceived)} | '
+            'speed=${task.speed.toStringAsFixed(0)} B/s',
             tag: 'progress',
           );
 
@@ -275,9 +276,9 @@ class DownloadController {
       if (Platform.isAndroid) {
         _log(
           'Invoking saveToDownloads → '
-              'filePath=$tempPath, '
-              'fileName=${task.fileName}, '
-              'subFolder=${task.subFolder}',
+          'filePath=$tempPath, '
+          'fileName=${task.fileName}, '
+          'subFolder=${task.subFolder}',
           tag: 'startTask',
         );
 
@@ -293,6 +294,12 @@ class DownloadController {
         _log('saveToDownloads succeeded → savedPath=$savedPath',
             tag: 'startTask');
         task.savedPath = savedPath;
+      }
+      if (Platform.isIOS) {
+        final dir = await getApplicationDocumentsDirectory();
+        final newPath = '${dir.path}/${task.fileName}';
+        await File(tempPath).copy(newPath);
+        task.savedPath = newPath;
       }
 
       task.status = DownloadStatus.completed;
@@ -311,15 +318,21 @@ class DownloadController {
         _log('Completion notification shown', tag: 'startTask');
       }
 
-      if (openAfterDownload) {
+      if (shouldOpen) {
         final pathToOpen =
-        Platform.isAndroid ? (savedPath ?? tempPath) : tempPath;
+            Platform.isAndroid ? (savedPath ?? tempPath) : tempPath;
+
         _log('Opening file → $pathToOpen', tag: 'startTask');
-        final openResult = await OpenFilex.open(pathToOpen);
+
+        final openResult = await OpenFilex.open(
+          pathToOpen,
+          type: FileHelper.getMimeType(task.fileName),
+        );
+
         _log(
           'OpenFilex result → '
-              'type=${openResult.type.name}, '
-              'message=${openResult.message}',
+          'type=${openResult.type.name}, '
+          'message=${openResult.message}',
           tag: 'startTask',
         );
       }
@@ -348,7 +361,7 @@ class DownloadController {
         final shouldRetry = task.retryCount < task.maxRetries;
         _log(
           'Retry check → retryCount=${task.retryCount}, '
-              'maxRetries=${task.maxRetries}, shouldRetry=$shouldRetry',
+          'maxRetries=${task.maxRetries}, shouldRetry=$shouldRetry',
           tag: 'startTask',
         );
 
@@ -358,14 +371,13 @@ class DownloadController {
           _notify(task, onUpdate);
           _log(
             'Retrying in ${task.retryDelay.inSeconds}s → '
-                'attempt=${task.retryCount}/${task.maxRetries}',
+            'attempt=${task.retryCount}/${task.maxRetries}',
             tag: 'startTask',
           );
           await Future.delayed(task.retryDelay);
           await startTask(
             task,
             onUpdate: onUpdate,
-            openAfterDownload: openAfterDownload,
             showNotification: showNotification,
           );
           return;
@@ -404,8 +416,8 @@ class DownloadController {
 
       _log(
         'finally → wasPaused=$wasPaused, '
-            'status=${task.status.name}, '
-            'shouldDelete=$shouldDelete',
+        'status=${task.status.name}, '
+        'shouldDelete=$shouldDelete',
         tag: 'startTask',
       );
 
@@ -429,7 +441,7 @@ class DownloadController {
       } else {
         _log(
           'Temp file kept for resume → $tempPath '
-              '(${_fmt(await File(tempPath).exists() ? await File(tempPath).length() : 0)} on disk)',
+          '(${_fmt(await File(tempPath).exists() ? await File(tempPath).length() : 0)} on disk)',
           tag: 'startTask',
         );
       }
@@ -454,12 +466,13 @@ class DownloadController {
 
     final toStart = tasks
         .where((t) =>
-    t.status == DownloadStatus.idle ||
-        t.status == DownloadStatus.paused)
+            t.status == DownloadStatus.idle ||
+            t.status == DownloadStatus.paused)
         .toList();
 
     for (final task in toStart) {
-      await startTask(task, onUpdate: onUpdate, showNotification: showNotification);
+      await startTask(task,
+          onUpdate: onUpdate, showNotification: showNotification);
     }
   }
 
@@ -492,16 +505,17 @@ class DownloadController {
   }
 
   Future<void> resumeTask(
-      DownloadTask task, {
-        Function()? onUpdate,
-        bool showNotification = true,
-      }) async {
+    DownloadTask task, {
+    Function()? onUpdate,
+    bool showNotification = true,
+  }) async {
     _log(
       'resumeTask → id=${task.id}, '
-          'progress=${(task.progress * 100).toStringAsFixed(1)}%',
+      'progress=${(task.progress * 100).toStringAsFixed(1)}%',
       tag: 'resumeTask',
     );
-    await startTask(task, onUpdate: onUpdate, showNotification: showNotification);
+    await startTask(task,
+        onUpdate: onUpdate, showNotification: showNotification);
   }
 
   Future<void> cancelTask(DownloadTask task, {Function()? onUpdate}) async {
@@ -563,9 +577,8 @@ class DownloadController {
     if (_activeCount >= maxConcurrent) return;
 
     final candidates = tasks.where(
-          (t) =>
-      t.status == DownloadStatus.idle ||
-          t.status == DownloadStatus.paused,
+      (t) =>
+          t.status == DownloadStatus.idle || t.status == DownloadStatus.paused,
     );
     if (candidates.isEmpty) return;
 

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_download_manager/flutter_download_manager.dart';
+import 'package:open_filex/open_filex.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await DownloadNotificationService.init(
     channelName: 'My App Downloads',
-    progressColor: Color(0xFF1565C0),
-    ledColor: Color(0xFF1565C0),
+    progressColor: const Color(0xFF1565C0),
+    ledColor: const Color(0xFF1565C0),
   );
+
   await DownloadNotificationService.requestPermission();
 
   runApp(const MyApp());
@@ -27,14 +29,16 @@ class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorSchemeSeed: const Color(0xFF1565C0),
-      useMaterial3: true,
-    ),
-    home: const DownloadScreen(),
-  );
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        colorSchemeSeed: const Color(0xFF1565C0),
+        useMaterial3: true,
+      ),
+      home: const DownloadScreen(),
+    );
+  }
 }
 
 class DownloadScreen extends StatefulWidget {
@@ -53,525 +57,204 @@ class _DownloadScreenState extends State<DownloadScreen> {
 
     controller = DownloadController(
       maxConcurrent: 2,
-      // ← concurrent limit
-      onTaskCompleted: (t) => _snack('✓ ${t.fileName} saved'),
+      onTaskCompleted: (t) => _snack('✓ ${t.fileName} completed'),
       onTaskFailed: (t) => _snack('✗ ${t.fileName} failed'),
       onTaskPaused: (t) => _snack('⏸ ${t.fileName} paused'),
-      onTaskProgress: (_) => setState(() {}), // ← global progress hook
+      onTaskProgress: (_) => setState(() {}),
     );
 
-    // Restore tasks from previous session
     controller.restoreTasks().then((_) => setState(() {}));
-
-    // Stream-based updates (alternative to onTaskProgress callback)
     controller.onTaskUpdated.listen((_) => setState(() {}));
   }
 
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
   void _snack(String msg) {
-    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void refresh() => setState(() {});
 
-  void _addCustomTask() {
-    final urlCtrl = TextEditingController();
-    final nameCtrl = TextEditingController();
-    final folderCtrl = TextEditingController(text: 'MyApp');
+  // 📊 DASHBOARD
+  Widget _stats() {
+    final active = controller.tasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .length;
 
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Add Download'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: urlCtrl,
-              decoration: const InputDecoration(labelText: 'URL'),
-            ),
-            TextField(
-              controller: nameCtrl,
-              decoration: const InputDecoration(
-                labelText: 'File name (optional)',
-              ),
-            ),
-            TextField(
-              controller: folderCtrl,
-              decoration: const InputDecoration(labelText: 'Sub-folder'),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final url = urlCtrl.text.trim();
-              if (url.isEmpty) return;
-              controller.addTask(
-                url,
-                fileName: nameCtrl.text.trim().isEmpty
-                    ? null
-                    : nameCtrl.text.trim(),
-                subFolder: folderCtrl.text.trim().isEmpty
-                    ? null
-                    : folderCtrl.text.trim(),
-                headers: {'Accept': '*/*'},
-                // ← custom headers
-                maxRetries: 3,
-                // ← retry policy
-                retryDelay: const Duration(seconds: 2),
-                priority: 1, // ← priority
-              );
-              refresh();
-              Navigator.pop(context);
-            },
-            child: const Text('Add'),
-          ),
+    final queued = controller.tasks
+        .where((t) => t.status == DownloadStatus.idle)
+        .length;
+
+    final done = controller.tasks
+        .where((t) => t.status == DownloadStatus.completed)
+        .length;
+
+    final speed = controller.tasks
+        .where((t) => t.status == DownloadStatus.downloading)
+        .fold<double>(0, (sum, t) => sum + t.speed);
+
+    return Container(
+      margin: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _stat('Active', active, Icons.downloading),
+          _stat('Queued', queued, Icons.schedule),
+          _stat('Done', done, Icons.check_circle),
+          _stat('Speed', FileHelper.formatSpeed(speed), Icons.speed),
         ],
       ),
     );
   }
 
+  Widget _stat(String label, dynamic value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon),
+        const SizedBox(height: 4),
+        Text('$value', style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(fontSize: 12)),
+      ],
+    );
+  }
+
+  void _addTask(String url) {
+    controller.addTask(
+      url,
+      subFolder: 'MyApp',
+      maxRetries: 2,
+      headers: {'Accept': '*/*'},
+      priority: 1,
+      openAfterDownload: true,
+    );
+    refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Download Manager'),
         actions: [
-          // Start all
           IconButton(
-            tooltip: 'Start all',
-            icon: const Icon(Icons.play_circle_outline),
+            icon: const Icon(Icons.play_arrow),
             onPressed: () => controller.startAll(onUpdate: refresh),
           ),
-          // Pause all
           IconButton(
-            tooltip: 'Pause all',
-            icon: const Icon(Icons.pause_circle_outline),
+            icon: const Icon(Icons.pause),
             onPressed: () => controller.pauseAll(onUpdate: refresh),
           ),
-          // Cancel all
           IconButton(
-            tooltip: 'Cancel all',
-            icon: const Icon(Icons.stop_circle_outlined),
+            icon: const Icon(Icons.stop),
             onPressed: () => controller.cancelAll(onUpdate: refresh),
-          ),
-          // Clear finished
-          IconButton(
-            tooltip: 'Clear finished',
-            icon: const Icon(Icons.clear_all),
-            onPressed: () {
-              controller.tasks.removeWhere(
-                (t) =>
-                    t.status == DownloadStatus.completed ||
-                    t.status == DownloadStatus.error,
-              );
-              refresh();
-            },
           ),
         ],
       ),
-
       body: Column(
         children: [
-          // Quick-add sample files
-          Container(
-            color: theme.colorScheme.surfaceContainerHighest,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Quick add', style: theme.textTheme.labelSmall),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    // Single task
-                    ..._samples.map(
-                      (f) => ActionChip(
-                        avatar: Icon(
-                          FileHelper.getFileIcon(f['url']!),
-                          size: 16,
-                        ),
-                        label: Text(f['label']!),
-                        onPressed: () {
-                          controller.addTask(
-                            f['url']!,
-                            subFolder: 'MyApp', // ← subfolder
-                            maxRetries: 2, // ← retry
-                            headers: {'Accept': '*/*'}, // ← headers
-                          );
-                          refresh();
-                        },
-                      ),
-                    ),
-                    // Batch add
-                    ActionChip(
-                      avatar: const Icon(Icons.playlist_add, size: 16),
-                      label: const Text('Batch (both)'),
-                      onPressed: () {
-                        controller.addBatch(
-                          // ← batch
-                          _samples.map((f) => f['url']!).toList(),
-                          subFolder: 'MyApp/Batch',
-                          maxRetries: 1,
-                        );
-                        refresh();
-                      },
-                    ),
-                  ],
+          _stats(),
+
+          // Quick Add
+          Wrap(
+            spacing: 8,
+            children: [
+              ..._samples.map(
+                (f) => ActionChip(
+                  label: Text(f['label']!),
+                  onPressed: () => _addTask(f['url']!),
                 ),
-              ],
-            ),
+              ),
+              ActionChip(
+                label: const Text('Batch'),
+                onPressed: () {
+                  controller.addBatch(
+                    _samples.map((e) => e['url']!).toList(),
+                    subFolder: 'Batch',
+                  );
+                  refresh();
+                },
+              ),
+            ],
           ),
 
-          // Task list
+          const SizedBox(height: 10),
+
           Expanded(
             child: controller.tasks.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.download_outlined,
-                          size: 64,
-                          color: theme.colorScheme.outline,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No downloads yet',
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(12),
+                ? const Center(child: Text('No downloads yet'))
+                : ListView.builder(
                     itemCount: controller.tasks.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 8),
                     itemBuilder: (_, i) {
-                      final task = controller.tasks[i];
+                      final t = controller.tasks[i];
 
-                      // StreamBuilder alternative (optional — controller already calls setState via onTaskProgress)
-                      return StreamBuilder<DownloadTask>(
-                        // ← stream-based
-                        stream: controller.onTaskUpdated.where(
-                          (t) => t.id == task.id,
+                      return Card(
+                        margin: const EdgeInsets.all(8),
+                        child: ListTile(
+                          title: Text(t.fileName),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              LinearProgressIndicator(value: t.progress),
+                              Text(
+                                '${(t.progress * 100).toStringAsFixed(1)}% • ${FileHelper.formatSpeed(t.speed)}',
+                              ),
+                              if (t.savedPath != null)
+                                Text(
+                                  t.savedPath!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                          trailing: _actions(t),
                         ),
-                        initialData: task,
-                        builder: (_, snap) {
-                          final t = snap.data ?? task;
-                          return _TaskCard(
-                            task: t,
-                            onStart: () => controller.startTask(
-                              t,
-                              onUpdate: refresh,
-                              showNotification: true,
-                            ),
-                            onPause: () =>
-                                controller.pauseTask(t, onUpdate: refresh),
-                            onResume: () =>
-                                controller.resumeTask(t, onUpdate: refresh),
-                            onCancel: () =>
-                                controller.cancelTask(t, onUpdate: refresh),
-                            onRemove: () {
-                              controller.removeTask(t, onUpdate: refresh);
-                              refresh();
-                            },
-                            onRetry: () =>
-                                controller.startTask(t, onUpdate: refresh),
-                            onOpen: () => controller.startTask(
-                              t,
-                              onUpdate: refresh,
-                              openAfterDownload: true,
-                            ),
-                          );
-                        },
                       );
                     },
                   ),
           ),
         ],
       ),
-
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addCustomTask,
-        icon: const Icon(Icons.add_link),
-        label: const Text('Add URL'),
-      ),
-    );
-  }
-}
-
-// ── Task Card (unchanged from before) ────────────────────────────────────────
-class _TaskCard extends StatelessWidget {
-  const _TaskCard({
-    required this.task,
-    required this.onStart,
-    required this.onPause,
-    required this.onResume,
-    required this.onCancel,
-    required this.onRemove,
-    required this.onRetry,
-    required this.onOpen,
-  });
-
-  final DownloadTask task;
-  final VoidCallback onStart,
-      onPause,
-      onResume,
-      onCancel,
-      onRemove,
-      onRetry,
-      onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final status = task.status;
-
-    final (Color color, IconData icon) = switch (status) {
-      DownloadStatus.idle => (theme.colorScheme.outline, Icons.schedule),
-      DownloadStatus.downloading => (
-        theme.colorScheme.primary,
-        Icons.downloading,
-      ),
-      DownloadStatus.paused => (Colors.orange, Icons.pause_circle),
-      DownloadStatus.completed => (Colors.green, Icons.check_circle),
-      DownloadStatus.error => (theme.colorScheme.error, Icons.error),
-    };
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: theme.colorScheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    FileHelper.getFileIcon(task.fileName),
-                    color: color,
-                    size: 24,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.fileName,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Row(
-                        children: [
-                          Icon(icon, size: 12, color: color),
-                          const SizedBox(width: 4),
-                          Text(
-                            _label(status),
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: color,
-                            ),
-                          ),
-
-                          if (task.retryCount > 0) ...[
-                            const SizedBox(width: 8),
-                            Text(
-                              'retry ${task.retryCount}/${task.maxRetries}',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: Colors.orange,
-                              ),
-                            ),
-                          ],
-                          if (task.subFolder != null) ...[
-                            const SizedBox(width: 8),
-                            Icon(
-                              Icons.folder_outlined,
-                              size: 11,
-                              color: theme.colorScheme.outline,
-                            ),
-                            const SizedBox(width: 2),
-                            Expanded(
-                              child: Text(
-                                task.subFolder!,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: theme.colorScheme.outline,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (status == DownloadStatus.downloading &&
-                          task.speed > 0) ...[
-                        const SizedBox(width: 8),
-                        Text(
-                          FileHelper.formatSpeed(task.speed),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                _actions(theme, status),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: task.progress,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                color: color,
-                minHeight: 6,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  '${(task.progress * 100).toStringAsFixed(1)}%',
-                  style: theme.textTheme.labelSmall,
-                ),
-                Text(
-                  FileHelper.getFileType(task.fileName),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.outline,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
     );
   }
 
-  Widget _actions(ThemeData theme, DownloadStatus status) => switch (status) {
-    DownloadStatus.idle => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Start',
-          icon: const Icon(Icons.play_arrow_rounded),
-          onPressed: onStart,
-        ),
-        IconButton(
-          tooltip: 'Remove',
-          icon: const Icon(Icons.close),
-          onPressed: onRemove,
-        ),
-      ],
-    ),
-    DownloadStatus.downloading => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Pause',
-          icon: const Icon(Icons.pause_rounded),
-          onPressed: onPause,
-        ),
-        IconButton(
-          tooltip: 'Cancel',
-          icon: const Icon(Icons.stop_rounded),
-          color: theme.colorScheme.error,
-          onPressed: onCancel,
-        ),
-      ],
-    ),
-    DownloadStatus.paused => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Resume',
-          icon: const Icon(Icons.play_arrow_rounded),
-          color: Colors.orange,
-          onPressed: onResume,
-        ),
-        IconButton(
-          tooltip: 'Cancel',
-          icon: const Icon(Icons.stop_rounded),
-          color: theme.colorScheme.error,
-          onPressed: onCancel,
-        ),
-      ],
-    ),
-    DownloadStatus.completed => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Open',
-          icon: const Icon(Icons.open_in_new_rounded),
-          color: Colors.green,
-          onPressed: onOpen,
-        ),
-        IconButton(
-          tooltip: 'Remove',
-          icon: const Icon(Icons.close),
-          onPressed: onRemove,
-        ),
-      ],
-    ),
-    DownloadStatus.error => Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Retry',
-          icon: const Icon(Icons.refresh_rounded),
-          color: theme.colorScheme.error,
-          onPressed: onRetry,
-        ),
-        IconButton(
-          tooltip: 'Remove',
-          icon: const Icon(Icons.close),
-          onPressed: onRemove,
-        ),
-      ],
-    ),
-  };
+  Widget _actions(DownloadTask t) {
+    switch (t.status) {
+      case DownloadStatus.idle:
+        return IconButton(
+          icon: const Icon(Icons.play_arrow),
+          onPressed: () => controller.startTask(t, onUpdate: refresh),
+        );
 
-  String _label(DownloadStatus s) => switch (s) {
-    DownloadStatus.idle => 'Ready',
-    DownloadStatus.downloading => 'Downloading',
-    DownloadStatus.paused => 'Paused',
-    DownloadStatus.completed => 'Completed',
-    DownloadStatus.error => 'Failed',
-  };
+      case DownloadStatus.downloading:
+        return IconButton(
+          icon: const Icon(Icons.pause),
+          onPressed: () => controller.pauseTask(t, onUpdate: refresh),
+        );
+
+      case DownloadStatus.paused:
+        return IconButton(
+          icon: const Icon(Icons.play_arrow),
+          onPressed: () => controller.resumeTask(t, onUpdate: refresh),
+        );
+
+      case DownloadStatus.completed:
+        return IconButton(
+          icon: const Icon(Icons.open_in_new),
+          onPressed: () {
+            if (t.savedPath != null) {
+              OpenFilex.open(t.savedPath!);
+            }
+          },
+        );
+
+      case DownloadStatus.error:
+        return IconButton(
+          icon: const Icon(Icons.refresh),
+          onPressed: () => controller.startTask(t, onUpdate: refresh),
+        );
+    }
+  }
 }

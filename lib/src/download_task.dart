@@ -22,6 +22,7 @@ class DownloadTask {
 
   int _lastReceivedBytes = 0;
   DateTime _lastSpeedCheck = DateTime.now();
+  bool openAfterDownload;
 
   DownloadTask({
     required this.id,
@@ -38,6 +39,7 @@ class DownloadTask {
     this.retryCount = 0,
     this.cancelToken,
     this.savedPath,
+    this.openAfterDownload = false,
   });
 
   void updateSpeed(int receivedBytes) {
@@ -71,9 +73,10 @@ class DownloadTask {
         'status': status.name,
         'retryCount': retryCount,
         'savedPath': savedPath,
+        'openAfterDownload': openAfterDownload,
       };
 
-  /// Deserialise from JSON for persistence
+  /// Deserialize from JSON for persistence
   factory DownloadTask.fromJson(Map<String, dynamic> json) => DownloadTask(
         id: json['id'],
         url: json['url'],
@@ -86,7 +89,7 @@ class DownloadTask {
         retryDelay: Duration(milliseconds: json['retryDelay'] ?? 2000),
         priority: json['priority'] ?? 0,
         progress: (json['progress'] ?? 0).toDouble(),
-        // Restore non-terminal statuses as idle so they can be resumed
+        openAfterDownload: json['openAfterDownload'] ?? false,
         status: json['status'] == 'completed'
             ? DownloadStatus.completed
             : json['status'] == 'error'
