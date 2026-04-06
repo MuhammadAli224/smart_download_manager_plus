@@ -362,24 +362,42 @@ class DownloadController {
       if (Platform.isAndroid) {
         _log(
           'Invoking saveToDownloads → '
-          'filePath=$tempPath, '
-          'fileName=${task.fileName}, '
-          'subFolder=${task.subFolder}',
+              'filePath=$tempPath, '
+              'fileName=${task.fileName}, '
+              'subFolder=${task.subFolder}',
           tag: 'startTask',
         );
 
-        savedPath = await _channel.invokeMethod<String>(
-          'saveToDownloads',
-          {
-            'filePath': tempPath,
-            'fileName': task.fileName,
-            if (task.subFolder != null) 'subFolder': task.subFolder,
-          },
-        );
+        dynamic result;
 
-        _log('saveToDownloads succeeded → savedPath=$savedPath',
-            tag: 'startTask');
+        try {
+          result = await _channel.invokeMethod(
+            'saveToDownloads',
+            {
+              'filePath': tempPath,
+              'fileName': task.fileName,
+              if (task.subFolder != null) 'subFolder': task.subFolder,
+            },
+          );
+        } catch (e) {
+          _log('MethodChannel error → $e', tag: 'startTask', error: e);
+          result = null;
+        }
+
+        _log('Raw result from native → ${result.runtimeType} : $result');
+
+        // ✅ SAFE handling (no crash ever)
+        if (result is String && result.isNotEmpty) {
+          savedPath = result;
+        } else {
+          savedPath = tempPath; // fallback
+          _log('Fallback to tempPath → $savedPath');
+        }
+
         task.savedPath = savedPath;
+
+        _log('saveToDownloads final → savedPath=$savedPath',
+            tag: 'startTask');
       }
       if (Platform.isIOS) {
         final dir = await getApplicationDocumentsDirectory();

@@ -37,30 +37,22 @@ class FlutterDownloadManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHand
             "saveToDownloads" -> {
                 val filePath = call.argument<String>("filePath")
                     ?: return result.error("INVALID_ARG", "filePath is required", null)
+
                 val fileName = call.argument<String>("fileName")
                     ?: return result.error("INVALID_ARG", "fileName is required", null)
 
-                // Optional subfolder inside Downloads
-                // e.g. "MyApp/Videos" → Downloads/MyApp/Videos/
                 val subFolder = call.argument<String>("subFolder")
                 val mimeType  = call.argument<String>("mimeType") ?: getMimeType(fileName)
 
-                // Build the relative path: Downloads/ or Downloads/SubFolder/
                 val relativePath = if (!subFolder.isNullOrBlank())
                     "${Environment.DIRECTORY_DOWNLOADS}/$subFolder"
                 else
                     Environment.DIRECTORY_DOWNLOADS
 
-                log("saveToDownloads → file=$fileName, relativePath=$relativePath, mime=$mimeType")
+                log("saveToDownloads → file=$fileName, relativePath=$relativePath")
 
                 try {
                     val resolver = context.contentResolver
-
-                    // Remove duplicate if exists
-                    findExistingFile(fileName, relativePath)?.let {
-                        resolver.delete(it, null, null)
-                        log("Deleted existing duplicate → $it")
-                    }
 
                     val contentValues = ContentValues().apply {
                         put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
@@ -68,27 +60,22 @@ class FlutterDownloadManagerPlugin : FlutterPlugin, MethodChannel.MethodCallHand
                         put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                     }
 
-                    log("Inserting into MediaStore...")
                     val uri = resolver.insert(
                         MediaStore.Downloads.EXTERNAL_CONTENT_URI,
                         contentValues
-                    ) ?: return result.error("INSERT_FAILED", "MediaStore insert returned null", null)
-                    log("MediaStore entry created → $uri")
+                    ) ?: return result.error("INSERT_FAILED", "MediaStore insert failed", null)
 
                     resolver.openOutputStream(uri)?.use { out ->
-                        FileInputStream(File(filePath)).use { inp ->
-                            val bytes = inp.copyTo(out)
-                            log("File copy complete → bytesCopied=$bytes")
+                        FileInputStream(File(filePath)).use { input ->
+                            input.copyTo(out)
                         }
-                    } ?: return result.error("STREAM_FAILED", "Could not open output stream", null)
+                    } ?: return result.error("STREAM_FAILED", "Output stream failed", null)
 
-                    val realPath = resolveRealPath(uri)
-                    log("Real path resolved → $realPath")
-
-                    result.success(realPath ?: uri.toString())
+                    // ✅ ALWAYS return String (IMPORTANT)
+                    result.success(uri.toString())
 
                 } catch (e: Exception) {
-                    log("EXCEPTION → ${e::class.simpleName}: ${e.message}")
+                    log("ERROR → ${e.message}")
                     result.error("SAVE_ERROR", e.message, null)
                 }
             }

@@ -1,3 +1,9 @@
+## 1.0.6
+FIX: MethodChannel type mismatch crash
+IMPROVE: Safe native result handling
+IMPROVE: Android MediaStore compatibility
+
+
 ## 1.0.5
 
 
